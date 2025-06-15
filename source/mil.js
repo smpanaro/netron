@@ -100,7 +100,7 @@ mil.Graph = class {
         // Matches: tensor type, dims string, tensor name, op name, op args, metadata (e.g. const details)
         // const opStructureRegex = /\s*tensor<([^,]*),\s\[([\d,\s]*)\]>\s([a-zA-Z0-9_-]*)\s=\s([a-zA-Z_]*)\(([^[;]*)\)(\[[^;]*\])?;/;
         // Matches: outputs, op name, op args, metadata (e.g. const details)
-        const opStructureRegex = /\s*([^=]*(?:alignments =)?[^=]*)\s=?\s([a-zA-Z_<>ios1-9]*)\(((?:(?!\)\[).)+)\)(\[[^;]*\])?/;
+        const opStructureRegex = /\s*([^=]*(?:alignments =)?[^=]*)\s=?\s([a-zA-Z_<>ios1-9]*)\(((?:(?!\)\[).)*)\)(\[[^;]*\])?/;
         for (; ;) {
             const line = reader.read();
             if (!line) {
@@ -211,23 +211,38 @@ mil.Node = class {
 
         // Outputs
         this._outputs = [];
-        // Regex to extract `tensor<dtype ,[dims]> name` substrings from outputs.
-        const outputsSplitRegex = /tensor<([^,]*),\s\[([\d\\?,\s]*)\](?:, \[alignments[^>]*>[^>]*)?>\s([a-zA-Z0-9_-]*)/g;
-        // Some ops don't have outputs (e.g. write_state)
-        const outputStrings = outputsString.length ? outputsString.match(outputsSplitRegex) : [];
-        // Regex to extract dtype, dims, name from a single `tensor<dtype ,[dims]> name`.
-        const outputExtractRegex = /tensor<([^,]*),\s\[([\d\\?,\s]*)\](?:, \[alignments[^>]*>[^>]*)?>\s([a-zA-Z0-9_-]*)/;
-        for (const outputString of outputStrings) {
-            const outputMatch = outputString.match(outputExtractRegex);
-            if (outputMatch.length !== 4) {
-                throw new mil.Error('Failed to parse output tensor.');
+
+        // Special handling for non-tensor outputs.
+        if (outputsString.startsWith('fp16')) {
+            const parts = outputsString.split(" ");
+            if (parts.length !== 2) {
+                throw new mil.Error('Failed to parse output fp16 value.');
             }
-            const dataType = outputMatch[1];
-            const dimString = outputMatch[2];
-            const dims = dimString.includes(',') ? dimString.split(', ').map((d) => parseInt(d)) : [parseInt(dimString)];
+            const dataType = parts[0];
+            const name = parts[1];
+            const dims = [1];
             const outputTensorType = new mil.TensorType(dataType, dims);
-            const outputTensorName = outputMatch[3];
+            const outputTensorName = name;
             this._outputs.push(new mil.Argument(outputTensorName, [getValue(outputTensorName, outputTensorType)]));
+        } else {
+            // Regex to extract `tensor<dtype ,[dims]> name` substrings from outputs.
+            const outputsSplitRegex = /tensor<([^,]*),\s\[([\d\\?,\s]*)\](?:, \[alignments[^>]*>[^>]*)?>\s([a-zA-Z0-9_-]*)/g;
+            // Some ops don't have outputs (e.g. write_state)
+            const outputStrings = outputsString.length ? outputsString.match(outputsSplitRegex) : [];
+            // Regex to extract dtype, dims, name from a single `tensor<dtype ,[dims]> name`.
+            const outputExtractRegex = /tensor<([^,]*),\s\[([\d\\?,\s]*)\](?:, \[alignments[^>]*>[^>]*)?>\s([a-zA-Z0-9_-]*)/;
+            for (const outputString of outputStrings) {
+                const outputMatch = outputString.match(outputExtractRegex);
+                if (outputMatch.length !== 4) {
+                    throw new mil.Error('Failed to parse output tensor.');
+                }
+                const dataType = outputMatch[1];
+                const dimString = outputMatch[2];
+                const dims = dimString.includes(',') ? dimString.split(', ').map((d) => parseInt(d)) : [parseInt(dimString)];
+                const outputTensorType = new mil.TensorType(dataType, dims);
+                const outputTensorName = outputMatch[3];
+                this._outputs.push(new mil.Argument(outputTensorName, [getValue(outputTensorName, outputTensorType)]));
+            }
         }
 
         this._name = opName;
